@@ -1,61 +1,49 @@
 # OTLI Client
 
-React + Vite + Tailwind CSS + shadcn-style UI client connected to the OTLI Express backend. This version includes Socket.IO realtime updates and request cleanup to avoid repeated duplicate GET requests.
+React + Vite + Tailwind CSS client for the OTLI Logistics Management System.
 
-## Main routes
+## Production backend
 
-Client portal:
+This build is already configured for the Render backend:
 
-- `/`
-- `/register`
-- `/profile`
-- `/pre-advice`
-- `/booking`
-- `/my-bookings`
+```env
+VITE_API_URL=https://otli-server.onrender.com/api
+VITE_SOCKET_URL=https://otli-server.onrender.com
+```
 
-Admin portal:
-
-- `/admin`
-- `/admin/account-approval`
-- `/admin/pre-advice-approval`
-- `/admin/booking-approval`
-- `/admin/gate-in`
-- `/admin/users`
-- `/admin/api-logs`
-- `/admin/audit-logs`
-- `/admin/settings`
-
-## Client account flow
-
-- New client registers and uploads documents
-- Client can login even when status is pending
-- Pending client can only update profile or upload missing documents
-- Rejected client can login, edit the profile, replace documents, and resubmit
-- Resubmitting a rejected profile changes the account back to pending
-- Only verified clients can submit pre-advice and bookings
-- Client navbar shows Booking for creating booking requests
-- Username dropdown has My Bookings for the booking list
-
-## Realtime and request cleanup
-
-- Socket.IO client listens for account, pre-advice, booking, gate-in, and admin-user events.
-- React StrictMode was removed from `src/main.jsx` to stop double API calls during development.
-- GET requests are deduped while already in flight.
-- Short GET cache is used to stop duplicate calls from fast re-renders.
-- `fetch` uses `cache: "no-store"` to avoid repeated 304 revalidation logs.
+`VITE_API_URL` is used for REST API requests.
+`VITE_SOCKET_URL` is used for Socket.IO realtime updates.
 
 ## Local setup
 
 ```bash
-npm install
-cp .env.example .env
+npm install --legacy-peer-deps --no-audit --no-fund
 npm run dev
 ```
 
-Client `.env`:
+## Production build
 
-```env
-VITE_API_URL=http://localhost:5000/api
+```bash
+npm run build
 ```
 
-For Vercel, set `VITE_API_URL` to your Render backend API URL.
+## Vercel settings
+
+Use these settings in Vercel:
+
+```txt
+Framework Preset: Vite
+Install Command: npm install --legacy-peer-deps --no-audit --no-fund
+Build Command: npm run build
+Output Directory: dist
+Node Version: 20.x
+```
+
+Add these environment variables in Vercel:
+
+```env
+VITE_API_URL=https://otli-server.onrender.com/api
+VITE_SOCKET_URL=https://otli-server.onrender.com
+```
+
+`vercel.json` is included for SPA routing, so refreshes on `/admin`, `/profile`, `/booking`, and `/my-bookings` should not show 404.

@@ -1,5 +1,6 @@
-export const API_BASE_URL = (import.meta.env.VITE_API_URL || "http://localhost:5000/api").replace(/\/$/, "")
+export const API_BASE_URL = (import.meta.env.VITE_API_URL || "https://otli-server.onrender.com/api").replace(/\/$/, "")
 export const API_ORIGIN = API_BASE_URL.replace(/\/api\/?$/, "")
+export const SOCKET_URL = (import.meta.env.VITE_SOCKET_URL || API_ORIGIN).replace(/\/$/, "")
 
 const GET_CACHE_TTL_MS = 1500
 const getCache = new Map()

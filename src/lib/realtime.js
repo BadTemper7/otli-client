@@ -1,5 +1,5 @@
 import { io } from "socket.io-client"
-import { API_ORIGIN } from "@/lib/api"
+import { SOCKET_URL } from "@/lib/api"
 
 let socket = null
 let activeToken = ""
@@ -16,7 +16,7 @@ export const getRealtimeSocket = (token) => {
   }
 
   activeToken = token
-  socket = io(API_ORIGIN, {
+  socket = io(SOCKET_URL, {
     auth: { token },
     transports: ["websocket", "polling"],
     autoConnect: true,
