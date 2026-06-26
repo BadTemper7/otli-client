@@ -1033,10 +1033,59 @@ function RegisterClientPage({ navigate }) {
 
   const setFile = (key, file) => setFiles((current) => ({ ...current, [key]: file }))
 
+  const cleanForm = () => ({
+    email: form.email.trim(),
+    password: form.password,
+    companyName: form.companyName.trim(),
+    companyAddress: form.companyAddress.trim(),
+    companyType: form.companyType.trim(),
+    companyTypeOther: form.companyTypeOther.trim(),
+    phoneNumber: form.phoneNumber.trim(),
+    representativeFirstName: form.representativeFirstName.trim(),
+    representativeMiddleName: form.representativeMiddleName.trim(),
+    representativeLastName: form.representativeLastName.trim(),
+    representativePosition: form.representativePosition.trim(),
+  })
+
+  const validateRegistrationForm = () => {
+    const current = cleanForm()
+    const missingFields = []
+
+    if (!current.companyName) missingFields.push("Company Name")
+    if (!current.companyAddress) missingFields.push("Company Address")
+    if (!current.phoneNumber) missingFields.push("Phone Number")
+    if (!current.representativeFirstName) missingFields.push("Representative First Name")
+    if (!current.representativeLastName) missingFields.push("Representative Last Name")
+    if (!current.representativePosition) missingFields.push("Representative Position")
+    if (!current.email) missingFields.push("Email")
+    if (!current.password) missingFields.push("Password")
+    if (current.companyType === "other" && !current.companyTypeOther) missingFields.push("Company Type Other")
+
+    if (missingFields.length) {
+      throw new Error(`Please complete these required fields before continuing to OTP: ${missingFields.join(", ")}.`)
+    }
+
+    if (!/^\S+@\S+\.\S+$/.test(current.email)) {
+      throw new Error("Please enter a valid email address before continuing to OTP.")
+    }
+
+    if (!/^(09\d{9}|\+639\d{9})$/.test(current.phoneNumber)) {
+      throw new Error("Please enter a valid Philippine phone number. Use 09XXXXXXXXX or +639XXXXXXXXX.")
+    }
+
+    if (current.password.length < 8) {
+      throw new Error("Password must be at least 8 characters before continuing to OTP.")
+    }
+
+    return current
+  }
+
   const requestOtpOnly = async () => {
+    const current = validateRegistrationForm()
+
     const response = await api.sendRegisterEmailOtp({
-      email: form.email,
-      phoneNumber: form.phoneNumber,
+      email: current.email,
+      phoneNumber: current.phoneNumber,
     })
 
     setOtpRequestId(response.data?.otpRequestId || "")
@@ -1057,8 +1106,10 @@ function RegisterClientPage({ navigate }) {
       throw new Error("Please enter the complete 6-digit OTP.")
     }
 
+    const current = validateRegistrationForm()
+
     const formData = new FormData()
-    Object.entries(form).forEach(([key, value]) => formData.append(key, value))
+    Object.entries(current).forEach(([key, value]) => formData.append(key, value))
     formData.append("emailOtpCode", emailOtpCode.trim())
     formData.append("emailOtpRequestId", otpRequestId)
 
@@ -1225,7 +1276,7 @@ function RegisterClientPage({ navigate }) {
             <Notice type="error" message={error} />
             <div className="grid gap-4 md:grid-cols-2">
               <Field label="Company Name" required>
-                <Input value={form.companyName} onChange={(event) => setValue("companyName", event.target.value)} />
+                <Input required value={form.companyName} onChange={(event) => setValue("companyName", event.target.value)} />
               </Field>
               <Field label="Company Type" required>
                 <Select value={form.companyType} onChange={(event) => setValue("companyType", event.target.value)}>
@@ -1238,36 +1289,36 @@ function RegisterClientPage({ navigate }) {
               </Field>
               {form.companyType === "other" ? (
                 <Field label="Specify Company Type">
-                  <Input value={form.companyTypeOther} onChange={(event) => setValue("companyTypeOther", event.target.value)} />
+                  <Input required value={form.companyTypeOther} onChange={(event) => setValue("companyTypeOther", event.target.value)} />
                 </Field>
               ) : null}
               <Field label="Phone Number" required>
-                <Input placeholder="09XXXXXXXXX or +639XXXXXXXXX" value={form.phoneNumber} onChange={(event) => setValue("phoneNumber", event.target.value)} />
+                <Input required placeholder="09XXXXXXXXX or +639XXXXXXXXX" value={form.phoneNumber} onChange={(event) => setValue("phoneNumber", event.target.value)} />
               </Field>
               <Field label="Company Address" required>
-                <Textarea value={form.companyAddress} onChange={(event) => setValue("companyAddress", event.target.value)} />
+                <Textarea required value={form.companyAddress} onChange={(event) => setValue("companyAddress", event.target.value)} />
               </Field>
             </div>
 
             <SectionTitle icon={Users} title="Representative Information" description="This will become the client user profile after OTP verification." />
             <div className="grid gap-4 md:grid-cols-3">
               <Field label="First Name" required>
-                <Input value={form.representativeFirstName} onChange={(event) => setValue("representativeFirstName", event.target.value)} />
+                <Input required value={form.representativeFirstName} onChange={(event) => setValue("representativeFirstName", event.target.value)} />
               </Field>
               <Field label="Middle Name">
                 <Input value={form.representativeMiddleName} onChange={(event) => setValue("representativeMiddleName", event.target.value)} />
               </Field>
               <Field label="Last Name" required>
-                <Input value={form.representativeLastName} onChange={(event) => setValue("representativeLastName", event.target.value)} />
+                <Input required value={form.representativeLastName} onChange={(event) => setValue("representativeLastName", event.target.value)} />
               </Field>
               <Field label="Position" required>
-                <Input value={form.representativePosition} onChange={(event) => setValue("representativePosition", event.target.value)} />
+                <Input required value={form.representativePosition} onChange={(event) => setValue("representativePosition", event.target.value)} />
               </Field>
               <Field label="Email" required>
-                <Input type="email" value={form.email} onChange={(event) => setValue("email", event.target.value)} />
+                <Input required type="email" autoComplete="email" value={form.email} onChange={(event) => setValue("email", event.target.value)} />
               </Field>
               <Field label="Password" required>
-                <Input type="password" value={form.password} onChange={(event) => setValue("password", event.target.value)} />
+                <Input required type="password" autoComplete="new-password" minLength={8} value={form.password} onChange={(event) => setValue("password", event.target.value)} />
               </Field>
             </div>
 
@@ -1278,7 +1329,7 @@ function RegisterClientPage({ navigate }) {
                 </div>
                 <div>
                   <p className="text-sm font-black text-slate-950">OTP is sent after form submit</p>
-                  <p className="mt-1 text-sm leading-6 text-slate-600">Click Submit Registration below. The system will check duplicate email and phone, then send OTP. The account is not saved yet at this step.</p>
+                  <p className="mt-1 text-sm leading-6 text-slate-600">Click Submit Registration below. The system will first check all required fields, then check duplicate email and phone, then send OTP. The account is not saved yet at this step.</p>
                 </div>
               </div>
             </div>
