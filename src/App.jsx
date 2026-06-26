@@ -898,6 +898,85 @@ function ClientLoginPage({ navigate }) {
   )
 }
 
+function OtpSixBoxInput({ value, onChange, disabled = false }) {
+  const refs = useRef([])
+  const digits = Array.from({ length: 6 }, (_, index) => value[index] || "")
+
+  const setDigit = (index, nextValue) => {
+    const clean = String(nextValue || "").replace(/\D/g, "")
+    const current = digits.slice()
+
+    if (clean.length > 1) {
+      const pasted = clean.slice(0, 6).split("")
+      onChange(pasted.join(""))
+      const nextIndex = Math.min(pasted.length, 5)
+      setTimeout(() => refs.current[nextIndex]?.focus(), 0)
+      return
+    }
+
+    current[index] = clean
+    const nextCode = current.join("").slice(0, 6)
+    onChange(nextCode)
+
+    if (clean && index < 5) {
+      refs.current[index + 1]?.focus()
+    }
+  }
+
+  const handleKeyDown = (event, index) => {
+    if (event.key === "Backspace" && !digits[index] && index > 0) {
+      refs.current[index - 1]?.focus()
+      const current = digits.slice()
+      current[index - 1] = ""
+      onChange(current.join(""))
+    }
+
+    if (event.key === "ArrowLeft" && index > 0) {
+      event.preventDefault()
+      refs.current[index - 1]?.focus()
+    }
+
+    if (event.key === "ArrowRight" && index < 5) {
+      event.preventDefault()
+      refs.current[index + 1]?.focus()
+    }
+  }
+
+  const handlePaste = (event) => {
+    event.preventDefault()
+    const pasted = event.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6)
+    onChange(pasted)
+    setTimeout(() => refs.current[Math.min(pasted.length, 5)]?.focus(), 0)
+  }
+
+  return (
+    <div className="flex justify-center gap-2 sm:gap-3">
+      {digits.map((digit, index) => (
+        <input
+          key={index}
+          ref={(node) => {
+            refs.current[index] = node
+          }}
+          type="text"
+          inputMode="numeric"
+          autoComplete={index === 0 ? "one-time-code" : "off"}
+          maxLength={1}
+          value={digit}
+          disabled={disabled}
+          onChange={(event) => setDigit(index, event.target.value)}
+          onKeyDown={(event) => handleKeyDown(event, index)}
+          onPaste={handlePaste}
+          className={cn(
+            "h-14 w-12 rounded-2xl border bg-white text-center text-2xl font-black text-slate-950 shadow-sm outline-none transition sm:h-16 sm:w-14",
+            digit ? "border-blue-400 ring-4 ring-blue-100" : "border-slate-200 hover:border-blue-200",
+            "focus:border-blue-500 focus:ring-4 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
+          )}
+        />
+      ))}
+    </div>
+  )
+}
+
 function RegisterClientPage({ navigate }) {
   const emptyForm = {
     email: "",
@@ -912,24 +991,35 @@ function RegisterClientPage({ navigate }) {
     representativeLastName: "",
     representativePosition: "",
   }
+
   const [form, setForm] = useState(emptyForm)
   const [files, setFiles] = useState({})
   const [emailOtpCode, setEmailOtpCode] = useState("")
   const [otpRequestId, setOtpRequestId] = useState("")
   const [otpSentTo, setOtpSentTo] = useState("")
   const [otpExpiresAt, setOtpExpiresAt] = useState("")
+  const [resendCountdown, setResendCountdown] = useState(0)
+  const [step, setStep] = useState("form")
   const [busy, setBusy] = useState(false)
-  const [otpBusy, setOtpBusy] = useState(false)
   const [message, setMessage] = useState("")
-  const [otpMessage, setOtpMessage] = useState("")
   const [error, setError] = useState("")
+
+  useEffect(() => {
+    if (step !== "otp" || resendCountdown <= 0) return undefined
+
+    const timer = window.setTimeout(() => {
+      setResendCountdown((current) => Math.max(current - 1, 0))
+    }, 1000)
+
+    return () => window.clearTimeout(timer)
+  }, [step, resendCountdown])
 
   const resetOtp = () => {
     setEmailOtpCode("")
     setOtpRequestId("")
     setOtpSentTo("")
     setOtpExpiresAt("")
-    setOtpMessage("")
+    setResendCountdown(0)
   }
 
   const setValue = (key, value) => {
@@ -937,36 +1027,51 @@ function RegisterClientPage({ navigate }) {
 
     if (["email", "phoneNumber"].includes(key)) {
       resetOtp()
+      setStep("form")
     }
   }
 
   const setFile = (key, file) => setFiles((current) => ({ ...current, [key]: file }))
 
-  const sendOtp = async () => {
-    setOtpBusy(true)
-    setMessage("")
-    setOtpMessage("")
-    setError("")
+  const requestOtpOnly = async () => {
+    const response = await api.sendRegisterEmailOtp({
+      email: form.email,
+      phoneNumber: form.phoneNumber,
+    })
 
-    try {
-      const response = await api.sendRegisterEmailOtp({
-        email: form.email,
-        phoneNumber: form.phoneNumber,
-      })
+    setOtpRequestId(response.data?.otpRequestId || "")
+    setOtpSentTo(response.data?.email || form.email)
+    setOtpExpiresAt(response.data?.expiresAt || "")
+    setEmailOtpCode("")
+    setStep("otp")
+    setResendCountdown(60)
+    setMessage(response.devOtp ? `${response.message || "OTP sent."} Development OTP: ${response.devOtp}` : response.message || "OTP sent. Please check your email.")
+  }
 
-      setOtpRequestId(response.data?.otpRequestId || "")
-      setOtpSentTo(response.data?.email || form.email)
-      setOtpExpiresAt(response.data?.expiresAt || "")
-      setOtpMessage(response.message || "OTP sent. Please check your email.")
-
-      if (response.devOtp) {
-        setOtpMessage(`${response.message || "OTP sent."} Development OTP: ${response.devOtp}`)
-      }
-    } catch (err) {
-      setError(messageFrom(err, "Unable to send email OTP."))
-    } finally {
-      setOtpBusy(false)
+  const createAccountAfterOtp = async () => {
+    if (!otpRequestId) {
+      throw new Error("Please submit the registration form first so we can send your email OTP.")
     }
+
+    if (emailOtpCode.length !== 6) {
+      throw new Error("Please enter the complete 6-digit OTP.")
+    }
+
+    const formData = new FormData()
+    Object.entries(form).forEach(([key, value]) => formData.append(key, value))
+    formData.append("emailOtpCode", emailOtpCode.trim())
+    formData.append("emailOtpRequestId", otpRequestId)
+
+    Object.entries(files).forEach(([key, file]) => {
+      if (file) formData.append(key, file)
+    })
+
+    const response = await api.registerClient(formData)
+    setMessage(response.message || "Account submitted. Your account is now ready for admin verification.")
+    setForm(emptyForm)
+    setFiles({})
+    resetOtp()
+    setStep("success")
   }
 
   const submit = async (event) => {
@@ -976,38 +1081,139 @@ function RegisterClientPage({ navigate }) {
     setError("")
 
     try {
-      if (!otpRequestId || !emailOtpCode.trim()) {
-        throw new Error("Please send and enter the email OTP before submitting registration.")
+      if (step === "form") {
+        await requestOtpOnly()
+        return
       }
 
-      const formData = new FormData()
-      Object.entries(form).forEach(([key, value]) => formData.append(key, value))
-      formData.append("emailOtpCode", emailOtpCode.trim())
-      formData.append("emailOtpRequestId", otpRequestId)
-      Object.entries(files).forEach(([key, file]) => {
-        if (file) formData.append(key, file)
-      })
-
-      const response = await api.registerClient(formData)
-      setMessage(response.message || "Account submitted.")
-      setForm(emptyForm)
-      setFiles({})
-      resetOtp()
+      if (step === "otp") {
+        await createAccountAfterOtp()
+      }
     } catch (err) {
-      setError(messageFrom(err, "Unable to submit account registration."))
+      setError(messageFrom(err, step === "form" ? "Unable to send email OTP." : "Unable to submit account registration."))
     } finally {
       setBusy(false)
     }
   }
 
-  const otpIsSent = Boolean(otpRequestId)
+  const handleEditDetails = () => {
+    resetOtp()
+    setError("")
+    setMessage("")
+    setStep("form")
+  }
+
+  const handleResendOtp = async () => {
+    if (resendCountdown > 0) return
+
+    setBusy(true)
+    setError("")
+    setMessage("")
+
+    try {
+      await requestOtpOnly()
+    } catch (err) {
+      const waitMatch = String(err?.message || "").match(/(\d+)\s*seconds?/i)
+      if (err?.status === 429 && waitMatch?.[1]) {
+        setResendCountdown(Number(waitMatch[1]))
+      }
+      setError(messageFrom(err, "Unable to resend email OTP."))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (step === "success") {
+    return (
+      <div className="mx-auto max-w-2xl">
+        <Card className="overflow-hidden">
+          <div className="bg-gradient-to-br from-emerald-500 via-blue-600 to-cyan-500 px-6 py-10 text-center text-white">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl bg-white/15 ring-1 ring-white/25">
+              <Check className="h-9 w-9" />
+            </div>
+            <h1 className="mt-5 text-3xl font-black">Registration submitted</h1>
+            <p className="mx-auto mt-2 max-w-md text-sm font-semibold text-white/85">Your account was added to the database and is now ready for admin verification.</p>
+          </div>
+          <CardContent className="p-6 text-center">
+            <Notice type="success" message={message} />
+            <div className="mt-5 flex flex-col justify-center gap-2 sm:flex-row">
+              <Button onClick={() => navigate("/")}>Go to Login</Button>
+              <Button variant="outline" onClick={() => navigate("/admin")}>Admin Portal</Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  if (step === "otp") {
+    return (
+      <div className="mx-auto max-w-2xl">
+        <Card className="overflow-hidden border-blue-100 shadow-xl shadow-blue-950/5">
+          <div className="bg-gradient-to-br from-blue-600 via-blue-600 to-cyan-500 px-6 py-8 text-center text-white">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl bg-white/15 ring-1 ring-white/25">
+              <ShieldCheck className="h-9 w-9" />
+            </div>
+            <p className="mt-5 text-xs font-black uppercase tracking-[0.25em] text-blue-100">Email Verification</p>
+            <h1 className="mt-2 text-3xl font-black">Enter your 6-digit OTP</h1>
+            <p className="mx-auto mt-2 max-w-md text-sm font-semibold text-white/85">We sent a verification code to {otpSentTo || form.email}.</p>
+          </div>
+
+          <CardContent className="p-6 sm:p-8">
+            <Notice type="success" message={message} />
+            <Notice type="error" message={error} />
+
+            <form onSubmit={submit} className="space-y-6">
+              <OtpSixBoxInput value={emailOtpCode} onChange={setEmailOtpCode} disabled={busy} />
+
+              <div className="rounded-3xl border border-blue-100 bg-blue-50 p-4 text-center">
+                <p className="text-sm font-black text-slate-950">Registration is not saved yet</p>
+                <p className="mt-1 text-xs font-semibold leading-5 text-slate-600">Your company details and documents will only be added to the database after this OTP is verified.</p>
+                {otpExpiresAt ? (
+                  <p className="mt-3 inline-flex items-center justify-center gap-1 rounded-full bg-white px-3 py-1 text-xs font-bold text-blue-700 ring-1 ring-blue-100">
+                    <Clock3 className="h-3.5 w-3.5" />
+                    Expires {formatDate(otpExpiresAt)}
+                  </p>
+                ) : null}
+              </div>
+
+              <Button type="submit" className="h-12 w-full rounded-2xl" disabled={busy || emailOtpCode.length !== 6}>
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserCheck className="h-4 w-4" />}
+                Verify OTP and Submit Registration
+              </Button>
+            </form>
+
+            <div className="mt-5 grid gap-2 sm:grid-cols-2">
+              <Button type="button" variant="outline" onClick={handleResendOtp} disabled={busy || resendCountdown > 0}>
+                {busy ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : resendCountdown > 0 ? (
+                  <Clock3 className="h-4 w-4" />
+                ) : (
+                  <RefreshCcw className="h-4 w-4" />
+                )}
+                {resendCountdown > 0 ? `Resend OTP in ${resendCountdown}s` : "Resend OTP"}
+              </Button>
+              <Button type="button" variant="ghost" onClick={handleEditDetails} disabled={busy}>
+                <ChevronLeft className="h-4 w-4" />
+                Edit Registration Details
+              </Button>
+            </div>
+            <p className="mt-3 text-center text-xs font-semibold text-slate-500">
+              Did not receive the code? You can request a new OTP after the countdown ends.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
 
   return (
     <div>
       <PageHeader
         eyebrow="Client module"
         title="Account Creation"
-        description="Submit company details and required documents. Email OTP verification is required before the account is sent for admin approval."
+        description="Fill out the registration form first. When you submit, the system will only send an email OTP. Your account is saved after OTP verification."
       >
         <Button variant="outline" onClick={() => navigate("/")}>Back to Login</Button>
       </PageHeader>
@@ -1015,9 +1221,7 @@ function RegisterClientPage({ navigate }) {
       <form onSubmit={submit} className="grid gap-5 lg:grid-cols-[1fr_0.8fr]">
         <Card>
           <CardContent className="p-5">
-            <SectionTitle icon={Building2} title="Company Information" description="These fields are saved to the client profile." />
-            <Notice type="success" message={message} />
-            <Notice type="success" message={otpMessage} />
+            <SectionTitle icon={Building2} title="Company Information" description="These details will be saved after OTP verification." />
             <Notice type="error" message={error} />
             <div className="grid gap-4 md:grid-cols-2">
               <Field label="Company Name" required>
@@ -1037,15 +1241,15 @@ function RegisterClientPage({ navigate }) {
                   <Input value={form.companyTypeOther} onChange={(event) => setValue("companyTypeOther", event.target.value)} />
                 </Field>
               ) : null}
-              <Field label="Phone Number">
+              <Field label="Phone Number" required>
                 <Input placeholder="09XXXXXXXXX or +639XXXXXXXXX" value={form.phoneNumber} onChange={(event) => setValue("phoneNumber", event.target.value)} />
               </Field>
-              <Field label="Company Address">
+              <Field label="Company Address" required>
                 <Textarea value={form.companyAddress} onChange={(event) => setValue("companyAddress", event.target.value)} />
               </Field>
             </div>
 
-            <SectionTitle icon={Users} title="Representative Information" description="This will become the client user profile." />
+            <SectionTitle icon={Users} title="Representative Information" description="This will become the client user profile after OTP verification." />
             <div className="grid gap-4 md:grid-cols-3">
               <Field label="First Name" required>
                 <Input value={form.representativeFirstName} onChange={(event) => setValue("representativeFirstName", event.target.value)} />
@@ -1056,7 +1260,7 @@ function RegisterClientPage({ navigate }) {
               <Field label="Last Name" required>
                 <Input value={form.representativeLastName} onChange={(event) => setValue("representativeLastName", event.target.value)} />
               </Field>
-              <Field label="Position">
+              <Field label="Position" required>
                 <Input value={form.representativePosition} onChange={(event) => setValue("representativePosition", event.target.value)} />
               </Field>
               <Field label="Email" required>
@@ -1068,30 +1272,14 @@ function RegisterClientPage({ navigate }) {
             </div>
 
             <div className="mt-5 rounded-3xl border border-blue-100 bg-blue-50/70 p-4">
-              <div className="flex flex-col gap-3 md:flex-row md:items-end">
-                <div className="flex-1">
-                  <Field label="Email OTP" required>
-                    <Input
-                      inputMode="numeric"
-                      maxLength={6}
-                      placeholder="Enter 6-digit OTP"
-                      value={emailOtpCode}
-                      onChange={(event) => setEmailOtpCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
-                    />
-                  </Field>
-                  {otpIsSent ? (
-                    <p className="mt-2 flex items-center gap-1 text-xs font-semibold text-blue-700">
-                      <Clock3 className="h-3.5 w-3.5" />
-                      Sent to {otpSentTo}. {otpExpiresAt ? `Expires ${formatDate(otpExpiresAt)}.` : "Please use it before it expires."}
-                    </p>
-                  ) : (
-                    <p className="mt-2 text-xs font-semibold text-slate-500">Click Send Email OTP first. The server will also check if email or phone is already registered.</p>
-                  )}
+              <div className="flex gap-3">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-blue-600 text-white">
+                  <ShieldCheck className="h-5 w-5" />
                 </div>
-                <Button type="button" variant={otpIsSent ? "outline" : "default"} onClick={sendOtp} disabled={otpBusy || busy}>
-                  {otpBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : otpIsSent ? <RefreshCcw className="h-4 w-4" /> : <ShieldCheck className="h-4 w-4" />}
-                  {otpIsSent ? "Resend OTP" : "Send Email OTP"}
-                </Button>
+                <div>
+                  <p className="text-sm font-black text-slate-950">OTP is sent after form submit</p>
+                  <p className="mt-1 text-sm leading-6 text-slate-600">Click Submit Registration below. The system will check duplicate email and phone, then send OTP. The account is not saved yet at this step.</p>
+                </div>
               </div>
             </div>
           </CardContent>
@@ -1099,7 +1287,7 @@ function RegisterClientPage({ navigate }) {
 
         <Card>
           <CardContent className="p-5">
-            <SectionTitle icon={UploadCloud} title="Submitted Documents" description="Files will be uploaded to Cloudinary through the Express server after OTP verification." />
+            <SectionTitle icon={UploadCloud} title="Submitted Documents" description="Files are uploaded only after the OTP is verified." />
             <div className="grid gap-3">
               <FileField label="Business Permit" name="businessPermit" onChange={setFile} />
               <FileField label="BIR Certificate" name="birCertificate" onChange={setFile} />
@@ -1107,11 +1295,11 @@ function RegisterClientPage({ navigate }) {
               <FileField label="Authorization Letter" name="authorizationLetter" onChange={setFile} />
               <FileField label="Other Document" name="otherDocument" onChange={setFile} />
             </div>
-            <Button type="submit" className="mt-5 w-full" disabled={busy || otpBusy || !otpRequestId}>
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <SendIcon />}
-              Submit Registration
+            <Button type="submit" className="mt-5 h-12 w-full rounded-2xl" disabled={busy}>
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+              Submit Registration and Send OTP
             </Button>
-            {!otpRequestId ? <p className="mt-3 text-center text-xs font-semibold text-slate-500">Send email OTP before submitting.</p> : null}
+            <p className="mt-3 text-center text-xs font-semibold text-slate-500">Step 1 only sends OTP. Step 2 saves the account after OTP verification.</p>
           </CardContent>
         </Card>
       </form>

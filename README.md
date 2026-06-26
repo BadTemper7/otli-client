@@ -1,76 +1,54 @@
-# OTLI Client and Admin Frontend
+# OTLI Client - Vercel Ready
 
-React + Vite + Tailwind CSS frontend for the OTLI Logistics Management System.
+React + Vite + Tailwind CSS client for the OTLI Logistics Management System.
 
-## Deployment
+## Included
 
-This package is ready for Vercel.
+- Client portal and admin portal
+- Complete container yard flow modules
+- Registration with email OTP
+- OTP-only verification screen after registration submit
+- Modern 6-box OTP input
+- Resend OTP button with 60-second countdown
+- Account is not saved during the first registration submit
+- Account is saved only after OTP verification
+- Socket.IO realtime connection
+- Vercel SPA routing support
 
-### Required Vercel Environment Variables
+## Environment Variables
+
+Create `.env.local` for local development:
+
+```env
+VITE_API_URL=http://localhost:5000/api
+VITE_SOCKET_URL=http://localhost:5000
+```
+
+For Vercel production:
 
 ```env
 VITE_API_URL=https://otli-server.onrender.com/api
 VITE_SOCKET_URL=https://otli-server.onrender.com
 ```
 
-Socket.IO uses the HTTPS server URL. Do not add `/api` to `VITE_SOCKET_URL`.
-
-### Vercel Settings
-
-```txt
-Framework Preset: Vite
-Install Command: npm install --legacy-peer-deps --no-audit --no-fund
-Build Command: npm run build
-Output Directory: dist
-```
-
-`vercel.json` is included for SPA routing.
-
-## Modules Included
-
-### Client Portal
-
-- Register with email OTP
-- Login
-- Profile and resubmission
-- Pre-Advice submission
-- Gate Appointment / Booking
-- My Gate Appointments
-- Gate-Out Request
-- My Gate-Out Requests
-- My Billing
-
-### Admin Portal
-
-Access admin using `/admin`.
-
-- Dashboard
-- Account Approval
-- Pre-Advice Approval
-- Booking / Gate Appointment Approval
-- Gate-In Module
-- Inventory / Yard Monitoring
-- Billing Module
-- Gate-Out Module
-- Payment Verification
-- Reports
-- Validation Rules
-- Users and Module Access
-- API Logs
-- Audit Logs
-- Settings
-
-## Local Run
+## Install and Run
 
 ```bash
 npm install --legacy-peer-deps --no-audit --no-fund
 npm run dev
 ```
 
-## Build Check
-
-This package was build-tested with:
+## Build
 
 ```bash
 npm run build
+```
+
+## Vercel Settings
+
+```txt
+Framework Preset: Vite
+Install Command: npm install --legacy-peer-deps --no-audit --no-fund
+Build Command: npm run build
+Output Directory: dist
 ```
