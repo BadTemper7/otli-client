@@ -1,49 +1,76 @@
-# OTLI Client
+# OTLI Client and Admin Frontend
 
-React + Vite + Tailwind CSS client for the OTLI Logistics Management System.
+React + Vite + Tailwind CSS frontend for the OTLI Logistics Management System.
 
-## Production backend
+## Deployment
 
-This build is already configured for the Render backend:
+This package is ready for Vercel.
+
+### Required Vercel Environment Variables
 
 ```env
 VITE_API_URL=https://otli-server.onrender.com/api
 VITE_SOCKET_URL=https://otli-server.onrender.com
 ```
 
-`VITE_API_URL` is used for REST API requests.
-`VITE_SOCKET_URL` is used for Socket.IO realtime updates.
+Socket.IO uses the HTTPS server URL. Do not add `/api` to `VITE_SOCKET_URL`.
 
-## Local setup
-
-```bash
-npm install --legacy-peer-deps --no-audit --no-fund
-npm run dev
-```
-
-## Production build
-
-```bash
-npm run build
-```
-
-## Vercel settings
-
-Use these settings in Vercel:
+### Vercel Settings
 
 ```txt
 Framework Preset: Vite
 Install Command: npm install --legacy-peer-deps --no-audit --no-fund
 Build Command: npm run build
 Output Directory: dist
-Node Version: 20.x
 ```
 
-Add these environment variables in Vercel:
+`vercel.json` is included for SPA routing.
 
-```env
-VITE_API_URL=https://otli-server.onrender.com/api
-VITE_SOCKET_URL=https://otli-server.onrender.com
+## Modules Included
+
+### Client Portal
+
+- Register with email OTP
+- Login
+- Profile and resubmission
+- Pre-Advice submission
+- Gate Appointment / Booking
+- My Gate Appointments
+- Gate-Out Request
+- My Gate-Out Requests
+- My Billing
+
+### Admin Portal
+
+Access admin using `/admin`.
+
+- Dashboard
+- Account Approval
+- Pre-Advice Approval
+- Booking / Gate Appointment Approval
+- Gate-In Module
+- Inventory / Yard Monitoring
+- Billing Module
+- Gate-Out Module
+- Payment Verification
+- Reports
+- Validation Rules
+- Users and Module Access
+- API Logs
+- Audit Logs
+- Settings
+
+## Local Run
+
+```bash
+npm install --legacy-peer-deps --no-audit --no-fund
+npm run dev
 ```
 
-`vercel.json` is included for SPA routing, so refreshes on `/admin`, `/profile`, `/booking`, and `/my-bookings` should not show 404.
+## Build Check
+
+This package was build-tested with:
+
+```bash
+npm run build
+```

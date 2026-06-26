@@ -118,6 +118,13 @@ export const api = {
 
   me: () => request("/auth/me"),
 
+  sendRegisterEmailOtp: ({ email, phoneNumber }) =>
+    request("/auth/register-email-otp", {
+      method: "POST",
+      body: { email, phoneNumber },
+      token: "",
+    }),
+
   registerClient: (formData) =>
     request("/auth/register-client", {
       method: "POST",
@@ -205,6 +212,101 @@ export const api = {
     request("/gate-ins", {
       method: "POST",
       body: data,
+    }),
+
+
+  inventories: (params = {}) => {
+    const query = new URLSearchParams(params).toString()
+    return request(`/inventory${query ? `?${query}` : ""}`)
+  },
+
+  updateInventory: (id, data) =>
+    request(`/inventory/${id}`, {
+      method: "PATCH",
+      body: data,
+    }),
+
+  submitGateOut: (formData) =>
+    request("/gate-outs", {
+      method: "POST",
+      body: formData,
+    }),
+
+  myGateOuts: () => request("/gate-outs/mine"),
+
+  adminGateOuts: (status = "all") => request(`/gate-outs/admin?status=${encodeURIComponent(status)}`),
+
+  approveGateOut: (id) =>
+    request(`/gate-outs/${id}/approve`, {
+      method: "PATCH",
+      body: {},
+    }),
+
+  rejectGateOut: (id, reason = "") =>
+    request(`/gate-outs/${id}/reject`, {
+      method: "PATCH",
+      body: { reason },
+    }),
+
+  releaseGateOut: (id) =>
+    request(`/gate-outs/${id}/release`, {
+      method: "PATCH",
+      body: {},
+    }),
+
+  myBillings: () => request("/billing/mine"),
+
+  adminBillings: (status = "all") => request(`/billing/admin?status=${encodeURIComponent(status)}`),
+
+  createBilling: (data) =>
+    request("/billing/admin", {
+      method: "POST",
+      body: data,
+    }),
+
+  submitBillingPayment: (id, data) =>
+    request(`/billing/${id}/payment`, {
+      method: "PATCH",
+      body: data,
+    }),
+
+  verifyBillingPayment: (id, data = {}) =>
+    request(`/billing/${id}/verify-payment`, {
+      method: "PATCH",
+      body: data,
+    }),
+
+  reportsSummary: () => request("/reports/summary"),
+
+  validationRules: () => request("/validation-rules"),
+
+  saveBlacklistedContainer: (data) =>
+    request("/validation-rules/blacklisted-containers", {
+      method: "POST",
+      body: data,
+    }),
+
+  saveOutstandingCharge: (data) =>
+    request("/validation-rules/outstanding-charges", {
+      method: "POST",
+      body: data,
+    }),
+
+  saveOwnershipRule: (data) =>
+    request("/validation-rules/ownership-rules", {
+      method: "POST",
+      body: data,
+    }),
+
+  saveValidationSettings: (data) =>
+    request("/validation-rules/settings", {
+      method: "PATCH",
+      body: data,
+    }),
+
+  deleteValidationRule: (type, id) =>
+    request(`/validation-rules/${type}/${id}`, {
+      method: "DELETE",
     }),
 
   adminUsers: () => request("/admin/users"),

@@ -53,6 +53,12 @@ const ADMIN_PATHS = {
   "/admin/pre-advice-approval": "pre-advice-approval",
   "/admin/booking-approval": "booking-approval",
   "/admin/gate-in": "gate-in",
+  "/admin/inventory": "inventory",
+  "/admin/billing": "billing",
+  "/admin/gate-out": "gate-out",
+  "/admin/payment-verification": "payment-verification",
+  "/admin/reports": "reports",
+  "/admin/validation-rules": "validation-rules",
   "/admin/users": "users",
   "/admin/api-logs": "api-logs",
   "/admin/audit-logs": "audit-logs",
@@ -64,8 +70,11 @@ const CLIENT_TITLES = {
   "/register": "Create Account",
   "/profile": "My Profile",
   "/pre-advice": "Pre-Advice Submission",
-  "/booking": "Booking Request",
-  "/my-bookings": "My Bookings",
+  "/booking": "Gate Appointment Request",
+  "/my-bookings": "My Gate Appointments",
+  "/gate-out": "Gate-Out Request",
+  "/my-gate-outs": "My Gate-Out Requests",
+  "/my-billings": "My Billing",
 }
 
 const documentLabels = {
@@ -74,8 +83,12 @@ const documentLabels = {
   validId: "Valid ID",
   authorizationLetter: "Authorization Letter",
   otherDocument: "Other Document",
-  billOfLading: "Bill of Lading",
+  eir: "EIR",
+  deliveryOrder: "Delivery Order",
+  bookingConfirmation: "Booking Confirmation",
   packingList: "Packing List",
+  customsClearance: "Customs Clearance",
+  billOfLading: "Bill of Lading",
   commercialInvoice: "Commercial Invoice",
 }
 
@@ -315,6 +328,75 @@ function DocumentsList({ documents }) {
   )
 }
 
+function ValidationSummary({ results }) {
+  const entries = Object.entries(results || {})
+  if (!entries.length) return null
+
+  return (
+    <div className="grid gap-2 sm:grid-cols-2">
+      {entries.map(([key, result]) => {
+        const passed = result?.passed !== false
+        const label = key
+          .replace(/([A-Z])/g, " $1")
+          .replace(/^./, (char) => char.toUpperCase())
+
+        return (
+          <div
+            key={key}
+            className={cn(
+              "flex items-start gap-2 rounded-xl border px-3 py-2 text-xs font-semibold",
+              passed ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-rose-200 bg-rose-50 text-rose-800"
+            )}
+          >
+            {passed ? <Check className="mt-0.5 h-3.5 w-3.5 shrink-0" /> : <X className="mt-0.5 h-3.5 w-3.5 shrink-0" />}
+            <span>
+              <span className="block font-black">{label}</span>
+              <span className="font-medium">{result?.message || (passed ? "Passed" : "Failed")}</span>
+            </span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function PreAdviceOutput({ item, compact = false }) {
+  if (!item) return null
+
+  const gate = item.gateAppointment || {}
+  const qr = item.qrCode || {}
+
+  return (
+    <div className={cn("rounded-2xl border border-blue-100 bg-blue-50/60 p-3", !compact && "p-4")}>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-600">Generated output</p>
+          <p className="mt-1 text-sm font-black text-slate-950">Pre-Advice No: {item.referenceNo || "-"}</p>
+          <p className="text-xs font-semibold text-slate-600">Gate Appointment: {gate.appointmentNo || "-"}</p>
+          <p className="text-xs text-slate-500">
+            {compactDate(gate.appointmentDate || item.arrivalDate || item.expectedArrivalDate)} {gate.timeWindow ? `• ${gate.timeWindow}` : ""}
+          </p>
+        </div>
+        {qr.imageDataUrl ? (
+          <div className="flex items-center gap-3">
+            <img src={qr.imageDataUrl} alt={`QR code for ${item.referenceNo}`} className="h-20 w-20 rounded-xl border border-white bg-white p-1 shadow-sm" />
+            {!compact ? (
+              <a
+                href={qr.imageDataUrl}
+                download={`${item.referenceNo || "pre-advice"}-qr.png`}
+                className="inline-flex h-10 items-center gap-2 rounded-xl border border-blue-200 bg-white px-3 text-xs font-black text-blue-700 hover:bg-blue-50"
+              >
+                <Download className="h-4 w-4" />
+                QR
+              </a>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
 function EmptyState({ title = "No records found", description = "Records will appear here once available." }) {
   return (
     <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center">
@@ -384,9 +466,21 @@ function ClientUserDropdown({ user, path, navigate }) {
     },
     {
       label: "My Bookings",
-      description: "View submitted booking list",
+      description: "View submitted gate appointments",
       path: "/my-bookings",
       icon: CalendarCheck,
+    },
+    {
+      label: "My Gate-Out Requests",
+      description: "Track release requests",
+      path: "/my-gate-outs",
+      icon: PackageCheck,
+    },
+    {
+      label: "My Billing",
+      description: "Invoices and payment status",
+      path: "/my-billings",
+      icon: FileText,
     },
   ]
 
@@ -486,7 +580,7 @@ function ClientLayout({ path, navigate, children }) {
 
   const visibleNavItems = CLIENT_NAV_ITEMS.filter((item) => {
     if (!clientLoggedIn) return false
-    return !["/", "/register", "/profile", "/my-bookings"].includes(item.path)
+    return !["/", "/register", "/profile", "/my-bookings", "/my-gate-outs", "/my-billings"].includes(item.path)
   })
 
   const logoTarget = clientLoggedIn ? "/pre-advice" : "/"
@@ -820,12 +914,60 @@ function RegisterClientPage({ navigate }) {
   }
   const [form, setForm] = useState(emptyForm)
   const [files, setFiles] = useState({})
+  const [emailOtpCode, setEmailOtpCode] = useState("")
+  const [otpRequestId, setOtpRequestId] = useState("")
+  const [otpSentTo, setOtpSentTo] = useState("")
+  const [otpExpiresAt, setOtpExpiresAt] = useState("")
   const [busy, setBusy] = useState(false)
+  const [otpBusy, setOtpBusy] = useState(false)
   const [message, setMessage] = useState("")
+  const [otpMessage, setOtpMessage] = useState("")
   const [error, setError] = useState("")
 
-  const setValue = (key, value) => setForm((current) => ({ ...current, [key]: value }))
+  const resetOtp = () => {
+    setEmailOtpCode("")
+    setOtpRequestId("")
+    setOtpSentTo("")
+    setOtpExpiresAt("")
+    setOtpMessage("")
+  }
+
+  const setValue = (key, value) => {
+    setForm((current) => ({ ...current, [key]: value }))
+
+    if (["email", "phoneNumber"].includes(key)) {
+      resetOtp()
+    }
+  }
+
   const setFile = (key, file) => setFiles((current) => ({ ...current, [key]: file }))
+
+  const sendOtp = async () => {
+    setOtpBusy(true)
+    setMessage("")
+    setOtpMessage("")
+    setError("")
+
+    try {
+      const response = await api.sendRegisterEmailOtp({
+        email: form.email,
+        phoneNumber: form.phoneNumber,
+      })
+
+      setOtpRequestId(response.data?.otpRequestId || "")
+      setOtpSentTo(response.data?.email || form.email)
+      setOtpExpiresAt(response.data?.expiresAt || "")
+      setOtpMessage(response.message || "OTP sent. Please check your email.")
+
+      if (response.devOtp) {
+        setOtpMessage(`${response.message || "OTP sent."} Development OTP: ${response.devOtp}`)
+      }
+    } catch (err) {
+      setError(messageFrom(err, "Unable to send email OTP."))
+    } finally {
+      setOtpBusy(false)
+    }
+  }
 
   const submit = async (event) => {
     event.preventDefault()
@@ -834,8 +976,14 @@ function RegisterClientPage({ navigate }) {
     setError("")
 
     try {
+      if (!otpRequestId || !emailOtpCode.trim()) {
+        throw new Error("Please send and enter the email OTP before submitting registration.")
+      }
+
       const formData = new FormData()
       Object.entries(form).forEach(([key, value]) => formData.append(key, value))
+      formData.append("emailOtpCode", emailOtpCode.trim())
+      formData.append("emailOtpRequestId", otpRequestId)
       Object.entries(files).forEach(([key, file]) => {
         if (file) formData.append(key, file)
       })
@@ -844,6 +992,7 @@ function RegisterClientPage({ navigate }) {
       setMessage(response.message || "Account submitted.")
       setForm(emptyForm)
       setFiles({})
+      resetOtp()
     } catch (err) {
       setError(messageFrom(err, "Unable to submit account registration."))
     } finally {
@@ -851,12 +1000,14 @@ function RegisterClientPage({ navigate }) {
     }
   }
 
+  const otpIsSent = Boolean(otpRequestId)
+
   return (
     <div>
       <PageHeader
         eyebrow="Client module"
         title="Account Creation"
-        description="Submit company details and required documents. Admin will verify the account before the client can submit pre-advice or bookings."
+        description="Submit company details and required documents. Email OTP verification is required before the account is sent for admin approval."
       >
         <Button variant="outline" onClick={() => navigate("/")}>Back to Login</Button>
       </PageHeader>
@@ -866,6 +1017,7 @@ function RegisterClientPage({ navigate }) {
           <CardContent className="p-5">
             <SectionTitle icon={Building2} title="Company Information" description="These fields are saved to the client profile." />
             <Notice type="success" message={message} />
+            <Notice type="success" message={otpMessage} />
             <Notice type="error" message={error} />
             <div className="grid gap-4 md:grid-cols-2">
               <Field label="Company Name" required>
@@ -886,7 +1038,7 @@ function RegisterClientPage({ navigate }) {
                 </Field>
               ) : null}
               <Field label="Phone Number">
-                <Input value={form.phoneNumber} onChange={(event) => setValue("phoneNumber", event.target.value)} />
+                <Input placeholder="09XXXXXXXXX or +639XXXXXXXXX" value={form.phoneNumber} onChange={(event) => setValue("phoneNumber", event.target.value)} />
               </Field>
               <Field label="Company Address">
                 <Textarea value={form.companyAddress} onChange={(event) => setValue("companyAddress", event.target.value)} />
@@ -914,12 +1066,40 @@ function RegisterClientPage({ navigate }) {
                 <Input type="password" value={form.password} onChange={(event) => setValue("password", event.target.value)} />
               </Field>
             </div>
+
+            <div className="mt-5 rounded-3xl border border-blue-100 bg-blue-50/70 p-4">
+              <div className="flex flex-col gap-3 md:flex-row md:items-end">
+                <div className="flex-1">
+                  <Field label="Email OTP" required>
+                    <Input
+                      inputMode="numeric"
+                      maxLength={6}
+                      placeholder="Enter 6-digit OTP"
+                      value={emailOtpCode}
+                      onChange={(event) => setEmailOtpCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                    />
+                  </Field>
+                  {otpIsSent ? (
+                    <p className="mt-2 flex items-center gap-1 text-xs font-semibold text-blue-700">
+                      <Clock3 className="h-3.5 w-3.5" />
+                      Sent to {otpSentTo}. {otpExpiresAt ? `Expires ${formatDate(otpExpiresAt)}.` : "Please use it before it expires."}
+                    </p>
+                  ) : (
+                    <p className="mt-2 text-xs font-semibold text-slate-500">Click Send Email OTP first. The server will also check if email or phone is already registered.</p>
+                  )}
+                </div>
+                <Button type="button" variant={otpIsSent ? "outline" : "default"} onClick={sendOtp} disabled={otpBusy || busy}>
+                  {otpBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : otpIsSent ? <RefreshCcw className="h-4 w-4" /> : <ShieldCheck className="h-4 w-4" />}
+                  {otpIsSent ? "Resend OTP" : "Send Email OTP"}
+                </Button>
+              </div>
+            </div>
           </CardContent>
         </Card>
 
         <Card>
           <CardContent className="p-5">
-            <SectionTitle icon={UploadCloud} title="Submitted Documents" description="Files will be uploaded to Cloudinary through the Express server." />
+            <SectionTitle icon={UploadCloud} title="Submitted Documents" description="Files will be uploaded to Cloudinary through the Express server after OTP verification." />
             <div className="grid gap-3">
               <FileField label="Business Permit" name="businessPermit" onChange={setFile} />
               <FileField label="BIR Certificate" name="birCertificate" onChange={setFile} />
@@ -927,10 +1107,11 @@ function RegisterClientPage({ navigate }) {
               <FileField label="Authorization Letter" name="authorizationLetter" onChange={setFile} />
               <FileField label="Other Document" name="otherDocument" onChange={setFile} />
             </div>
-            <Button type="submit" className="mt-5 w-full" disabled={busy}>
+            <Button type="submit" className="mt-5 w-full" disabled={busy || otpBusy || !otpRequestId}>
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <SendIcon />}
               Submit Registration
             </Button>
+            {!otpRequestId ? <p className="mt-3 text-center text-xs font-semibold text-slate-500">Send email OTP before submitting.</p> : null}
           </CardContent>
         </Card>
       </form>
@@ -1106,17 +1287,24 @@ function SendIcon() {
 function PreAdvicePage({ navigate }) {
   const { user, portal } = useAuth()
   const clientLoggedIn = user?.role === "client" && portal === "client"
-  const [form, setForm] = useState({
+  const initialForm = {
     containerNo: "",
-    sealNo: "",
+    containerSize: "20ft",
+    containerType: "Dry",
+    containerStatus: "Empty",
     shippingLine: "",
-    vesselName: "",
-    voyageNo: "",
-    containerSize: "20FT",
+    bookingNumber: "",
+    blNumber: "",
+    vesselVoyage: "",
     cargoDescription: "",
-    expectedArrivalDate: "",
-  })
+    dangerousGoodsClass: "",
+    weight: "",
+    arrivalDate: "",
+  }
+  const [form, setForm] = useState(initialForm)
   const [files, setFiles] = useState({})
+  const [lastSubmitted, setLastSubmitted] = useState(null)
+  const [validationResults, setValidationResults] = useState(null)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState("")
   const [error, setError] = useState("")
@@ -1132,6 +1320,8 @@ function PreAdvicePage({ navigate }) {
     setBusy(true)
     setMessage("")
     setError("")
+    setValidationResults(null)
+    setLastSubmitted(null)
 
     try {
       const formData = new FormData()
@@ -1142,19 +1332,13 @@ function PreAdvicePage({ navigate }) {
 
       const response = await api.submitPreAdvice(formData)
       setMessage(response.message || "Pre-advice submitted.")
-      setForm({
-        containerNo: "",
-        sealNo: "",
-        shippingLine: "",
-        vesselName: "",
-        voyageNo: "",
-        containerSize: "20FT",
-        cargoDescription: "",
-        expectedArrivalDate: "",
-      })
+      setLastSubmitted(response.data || null)
+      setValidationResults(response.data?.validationResults || null)
+      setForm(initialForm)
       setFiles({})
       records.reload()
     } catch (err) {
+      setValidationResults(err.payload?.validationResults || null)
       setError(messageFrom(err, "Unable to submit pre-advice."))
     } finally {
       setBusy(false)
@@ -1171,7 +1355,7 @@ function PreAdvicePage({ navigate }) {
       <PageHeader
         eyebrow="Client module"
         title="Pre-Advice Submission"
-        description="Company name is pulled from your verified account. Upload BL, packing list, invoice, or other supporting documents."
+        description="Notify the terminal before container arrival. The system checks duplicates, blacklists, outstanding charges, and ownership rules before creating the pre-advice number, QR code, and gate appointment."
       >
         <StatusBadge status={user.status} />
       </PageHeader>
@@ -1181,39 +1365,62 @@ function PreAdvicePage({ navigate }) {
       <div className="grid gap-5 xl:grid-cols-[1fr_0.9fr]">
         <Card>
           <CardContent className="p-5">
-            <SectionTitle icon={ClipboardCheck} title="Pre-Advice Details" description="This form calls POST /api/pre-advices." />
+            <SectionTitle icon={ClipboardCheck} title="Shipping Line Pre-Advice" description="Complete the container details and upload terminal documents." />
             <Notice type="success" message={message} />
             <Notice type="error" message={error} />
-            <form onSubmit={submit} className="space-y-4">
+            {validationResults ? <div className="mb-4"><ValidationSummary results={validationResults} /></div> : null}
+            {lastSubmitted ? <div className="mb-4"><PreAdviceOutput item={lastSubmitted} /></div> : null}
+
+            <form onSubmit={submit} className="space-y-5">
               <div className="grid gap-4 md:grid-cols-2">
                 <Field label="Company Name">
                   <Input value={getCompanyName(user)} disabled />
                 </Field>
-                <Field label="Container No." required>
-                  <Input value={form.containerNo} onChange={(event) => setValue("containerNo", event.target.value)} placeholder="ABCD1234567" />
+                <Field label="Container Number" required>
+                  <Input value={form.containerNo} onChange={(event) => setValue("containerNo", event.target.value.toUpperCase())} placeholder="ABCD1234567" />
                 </Field>
-                <Field label="Seal No.">
-                  <Input value={form.sealNo} onChange={(event) => setValue("sealNo", event.target.value)} />
-                </Field>
-                <Field label="Shipping Line">
-                  <Input value={form.shippingLine} onChange={(event) => setValue("shippingLine", event.target.value)} />
-                </Field>
-                <Field label="Vessel Name">
-                  <Input value={form.vesselName} onChange={(event) => setValue("vesselName", event.target.value)} />
-                </Field>
-                <Field label="Voyage No.">
-                  <Input value={form.voyageNo} onChange={(event) => setValue("voyageNo", event.target.value)} />
-                </Field>
-                <Field label="Container Size">
+                <Field label="Container Size" required>
                   <Select value={form.containerSize} onChange={(event) => setValue("containerSize", event.target.value)}>
-                    <option value="20FT">20FT</option>
-                    <option value="40FT">40FT</option>
-                    <option value="40HC">40HC</option>
-                    <option value="45FT">45FT</option>
+                    <option value="20ft">20ft</option>
+                    <option value="40ft">40ft</option>
+                    <option value="45ft">45ft</option>
                   </Select>
                 </Field>
-                <Field label="Expected Arrival Date">
-                  <Input type="date" value={form.expectedArrivalDate} onChange={(event) => setValue("expectedArrivalDate", event.target.value)} />
+                <Field label="Container Type" required>
+                  <Select value={form.containerType} onChange={(event) => setValue("containerType", event.target.value)}>
+                    <option value="Dry">Dry</option>
+                    <option value="Reefer">Reefer</option>
+                    <option value="Tank">Tank</option>
+                    <option value="Open Top">Open Top</option>
+                    <option value="Flat Rack">Flat Rack</option>
+                  </Select>
+                </Field>
+                <Field label="Container Status" required>
+                  <Select value={form.containerStatus} onChange={(event) => setValue("containerStatus", event.target.value)}>
+                    <option value="Empty">Empty</option>
+                    <option value="Laden">Laden</option>
+                  </Select>
+                </Field>
+                <Field label="Shipping Line" required>
+                  <Input value={form.shippingLine} onChange={(event) => setValue("shippingLine", event.target.value)} placeholder="Example: Maersk" />
+                </Field>
+                <Field label="Booking Number">
+                  <Input value={form.bookingNumber} onChange={(event) => setValue("bookingNumber", event.target.value)} />
+                </Field>
+                <Field label="BL Number">
+                  <Input value={form.blNumber} onChange={(event) => setValue("blNumber", event.target.value)} />
+                </Field>
+                <Field label="Vessel / Voyage">
+                  <Input value={form.vesselVoyage} onChange={(event) => setValue("vesselVoyage", event.target.value)} placeholder="Vessel Name / Voyage No." />
+                </Field>
+                <Field label="Dangerous Goods Classification">
+                  <Input value={form.dangerousGoodsClass} onChange={(event) => setValue("dangerousGoodsClass", event.target.value)} placeholder="Leave blank if not DG" />
+                </Field>
+                <Field label="Weight">
+                  <Input type="number" min="0" step="0.01" value={form.weight} onChange={(event) => setValue("weight", event.target.value)} placeholder="Weight in kg" />
+                </Field>
+                <Field label="Arrival Date" required>
+                  <Input type="date" value={form.arrivalDate} onChange={(event) => setValue("arrivalDate", event.target.value)} />
                 </Field>
                 <div className="md:col-span-2">
                   <Field label="Cargo Description">
@@ -1222,11 +1429,15 @@ function PreAdvicePage({ navigate }) {
                 </div>
               </div>
 
-              <div className="grid gap-3 md:grid-cols-2">
-                <FileField label="Bill of Lading" name="billOfLading" onChange={setFile} />
-                <FileField label="Packing List" name="packingList" onChange={setFile} />
-                <FileField label="Commercial Invoice" name="commercialInvoice" onChange={setFile} />
-                <FileField label="Other Document" name="otherDocument" onChange={setFile} />
+              <div>
+                <SectionTitle icon={FileCheck2} title="Upload Documents" description="Upload the required documents sent by the shipping line, depot, trucker, or customer." />
+                <div className="grid gap-3 md:grid-cols-2">
+                  <FileField label="EIR" name="eir" onChange={setFile} />
+                  <FileField label="Delivery Order" name="deliveryOrder" onChange={setFile} />
+                  <FileField label="Booking Confirmation" name="bookingConfirmation" onChange={setFile} />
+                  <FileField label="Packing List" name="packingList" onChange={setFile} />
+                  <FileField label="Customs Clearance" name="customsClearance" onChange={setFile} />
+                </div>
               </div>
 
               <Button type="submit" disabled={busy || !isVerified} className="w-full md:w-auto">
@@ -1258,7 +1469,15 @@ function PreAdvicePage({ navigate }) {
                       </div>
                       <StatusBadge status={item.status} />
                     </div>
-                    <p className="text-sm text-slate-600">ETA: {compactDate(item.expectedArrivalDate)}</p>
+                    <div className="grid gap-1 text-sm text-slate-600 sm:grid-cols-2">
+                      <p>Size: {item.containerSize || "-"}</p>
+                      <p>Type: {item.containerType || "-"}</p>
+                      <p>Status: {item.containerStatus || "-"}</p>
+                      <p>Arrival: {compactDate(item.arrivalDate || item.expectedArrivalDate)}</p>
+                      <p>Shipping Line: {item.shippingLine || "-"}</p>
+                      <p>Booking: {item.bookingNumber || "-"}</p>
+                    </div>
+                    <div className="mt-3"><PreAdviceOutput item={item} compact /></div>
                     <div className="mt-3"><DocumentsList documents={item.documents} /></div>
                   </div>
                 ))}
@@ -1914,7 +2133,7 @@ function PreAdviceApprovalPage() {
   return (
     <AdminTablePage
       title="Pre-Advice Approval"
-      description="Review submitted pre-advice and Cloudinary document links. Approved pre-advice can be used for bookings."
+      description="Review shipping line pre-advice, validation results, QR output, gate appointment, and uploaded Cloudinary document links."
       status={status}
       setStatus={setStatus}
       reload={records.reload}
@@ -1924,12 +2143,15 @@ function PreAdviceApprovalPage() {
     >
       {rows.length ? (
         <TableWrap>
-          <table className="w-full min-w-[1100px] text-left text-sm">
+          <table className="w-full min-w-[1450px] text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500">
               <tr>
                 <th className="px-4 py-3">Reference</th>
                 <th className="px-4 py-3">Company</th>
-                <th className="px-4 py-3">Container</th>
+                <th className="px-4 py-3">Container Details</th>
+                <th className="px-4 py-3">Booking / Vessel</th>
+                <th className="px-4 py-3">Validation</th>
+                <th className="px-4 py-3">Output</th>
                 <th className="px-4 py-3">Documents</th>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3">Submitted</th>
@@ -1945,10 +2167,22 @@ function PreAdviceApprovalPage() {
                     <p className="text-slate-500">{item.client?.email || "-"}</p>
                   </td>
                   <td className="px-4 py-4 text-slate-600">
-                    <p>{item.containerNo}</p>
-                    <p>{item.containerSize || "-"}</p>
-                    <p>ETA: {compactDate(item.expectedArrivalDate)}</p>
+                    <p className="font-black text-slate-900">{item.containerNo}</p>
+                    <p>{item.containerSize || "-"} / {item.containerType || "-"}</p>
+                    <p>{item.containerStatus || "-"}</p>
+                    <p>Arrival: {compactDate(item.arrivalDate || item.expectedArrivalDate)}</p>
+                    <p>Weight: {item.weight ? `${item.weight} kg` : "-"}</p>
+                    <p>DG: {item.dangerousGoodsClass || "Not declared"}</p>
                   </td>
+                  <td className="px-4 py-4 text-slate-600">
+                    <p>Shipping Line: {item.shippingLine || "-"}</p>
+                    <p>Booking: {item.bookingNumber || "-"}</p>
+                    <p>BL: {item.blNumber || "-"}</p>
+                    <p>Vessel/Voyage: {item.vesselVoyage || [item.vesselName, item.voyageNo].filter(Boolean).join(" / ") || "-"}</p>
+                    <p className="mt-2 max-w-[220px] text-xs leading-5 text-slate-500">{item.cargoDescription || "No cargo description"}</p>
+                  </td>
+                  <td className="px-4 py-4 min-w-[280px]"><ValidationSummary results={item.validationResults} /></td>
+                  <td className="px-4 py-4 min-w-[260px]"><PreAdviceOutput item={item} compact /></td>
                   <td className="px-4 py-4"><DocumentsList documents={item.documents} /></td>
                   <td className="px-4 py-4"><StatusBadge status={item.status} /></td>
                   <td className="px-4 py-4 text-slate-500">{formatDate(item.createdAt)}</td>
@@ -2489,6 +2723,308 @@ function ForbiddenModule({ activeModule }) {
   )
 }
 
+function money(value) {
+  const amount = Number(value || 0)
+  return new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(amount)
+}
+
+function GateOutPage({ navigate, listOnly = false }) {
+  const { user, portal } = useAuth()
+  const clientLoggedIn = user?.role === "client" && portal === "client"
+  const [form, setForm] = useState({
+    containerNo: "",
+    releaseOrderNo: "",
+    customsClearanceNo: "",
+    paymentReference: "",
+    truckPlateNo: "",
+    driverName: "",
+    driverMobile: "",
+    requestedReleaseDate: "",
+    remarks: "",
+  })
+  const [files, setFiles] = useState({})
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState("")
+  const [error, setError] = useState("")
+
+  const records = useApiData(() => clientLoggedIn ? api.myGateOuts() : Promise.resolve({ data: [] }), [clientLoggedIn])
+  const billings = useApiData(() => clientLoggedIn ? api.myBillings() : Promise.resolve({ data: [] }), [clientLoggedIn])
+  useRealtimeReload(["gateOut:created", "gateOut:updated", "billing:updated"], () => { records.reload(); billings.reload() }, clientLoggedIn)
+
+  if (!clientLoggedIn) return <ProtectedClientNotice navigate={navigate} />
+
+  const setValue = (key, value) => setForm((current) => ({ ...current, [key]: value }))
+  const setFile = (key, file) => setFiles((current) => ({ ...current, [key]: file }))
+
+  const submit = async (event) => {
+    event.preventDefault()
+    setBusy(true)
+    setError("")
+    setMessage("")
+    try {
+      const formData = new FormData()
+      Object.entries(form).forEach(([key, value]) => formData.append(key, value))
+      Object.entries(files).forEach(([key, file]) => { if (file) formData.append(key, file) })
+      const response = await api.submitGateOut(formData)
+      setMessage(response.message || "Gate-out request submitted.")
+      setForm({ containerNo: "", releaseOrderNo: "", customsClearanceNo: "", paymentReference: "", truckPlateNo: "", driverName: "", driverMobile: "", requestedReleaseDate: "", remarks: "" })
+      setFiles({})
+      records.reload()
+    } catch (err) {
+      setError(messageFrom(err, "Unable to submit gate-out request."))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const rows = records.data?.data || []
+  const invoices = billings.data?.data || []
+
+  return (
+    <div>
+      <PageHeader eyebrow="Client module" title={listOnly ? "My Gate-Out Requests" : "Gate-Out Request"} description="Request container release from the yard. Admin validates release order, customs clearance, and payment before final gate-out." />
+      <div className="grid gap-5 xl:grid-cols-[1fr_0.9fr]">
+        {!listOnly ? (
+          <Card>
+            <CardContent className="p-5">
+              <SectionTitle icon={PackageCheck} title="Gate-Out Details" description="Submit release information and attach required documents." />
+              <Notice type="success" message={message} />
+              <Notice type="error" message={error} />
+              <form onSubmit={submit} className="space-y-5">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <Field label="Container Number" required><Input value={form.containerNo} onChange={(event) => setValue("containerNo", event.target.value.toUpperCase())} placeholder="ABCD1234567" /></Field>
+                  <Field label="Release Order No." required><Input value={form.releaseOrderNo} onChange={(event) => setValue("releaseOrderNo", event.target.value)} /></Field>
+                  <Field label="Customs Clearance No." required><Input value={form.customsClearanceNo} onChange={(event) => setValue("customsClearanceNo", event.target.value)} /></Field>
+                  <Field label="Payment Reference" required><Input value={form.paymentReference} onChange={(event) => setValue("paymentReference", event.target.value)} /></Field>
+                  <Field label="Truck Plate No."><Input value={form.truckPlateNo} onChange={(event) => setValue("truckPlateNo", event.target.value)} /></Field>
+                  <Field label="Driver Name"><Input value={form.driverName} onChange={(event) => setValue("driverName", event.target.value)} /></Field>
+                  <Field label="Driver Mobile"><Input value={form.driverMobile} onChange={(event) => setValue("driverMobile", event.target.value)} /></Field>
+                  <Field label="Requested Release Date"><Input type="date" value={form.requestedReleaseDate} onChange={(event) => setValue("requestedReleaseDate", event.target.value)} /></Field>
+                  <div className="md:col-span-2"><Field label="Remarks"><Textarea value={form.remarks} onChange={(event) => setValue("remarks", event.target.value)} /></Field></div>
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <FileField label="Release Order" name="releaseOrder" onChange={setFile} />
+                  <FileField label="Customs Clearance" name="customsClearance" onChange={setFile} />
+                  <FileField label="Payment Proof" name="paymentProof" onChange={setFile} />
+                  <FileField label="Other Document" name="otherDocument" onChange={setFile} />
+                </div>
+                <Button type="submit" disabled={busy || user.status !== "verified"}>
+                  {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackageCheck className="h-4 w-4" />}
+                  Submit Gate-Out Request
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+        ) : null}
+
+        <Card className={listOnly ? "xl:col-span-2" : ""}>
+          <CardHeader><CardTitle>Gate-Out Requests</CardTitle><Button variant="outline" size="sm" onClick={records.reload}><RefreshCcw className="h-4 w-4" />Refresh</Button></CardHeader>
+          <CardContent>
+            {records.loading ? <LoadingBlock /> : rows.length ? (
+              <div className="space-y-3">
+                {rows.map((item) => (
+                  <div key={item._id} className="rounded-2xl border border-slate-200 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div><p className="font-black text-slate-950">{item.requestNo}</p><p className="text-sm text-slate-500">{item.containerNo}</p></div>
+                      <StatusBadge status={item.status} />
+                    </div>
+                    <div className="mt-3 grid gap-1 text-sm text-slate-600 md:grid-cols-2">
+                      <p>Release Order: {item.releaseOrderNo || "-"}</p>
+                      <p>Customs Clearance: {item.customsClearanceNo || "-"}</p>
+                      <p>Payment Ref: {item.paymentReference || "-"}</p>
+                      <p>Requested Date: {compactDate(item.requestedReleaseDate)}</p>
+                    </div>
+                    <div className="mt-3"><ValidationSummary results={item.validationResults} /></div>
+                    <div className="mt-3"><DocumentsList documents={item.documents} /></div>
+                  </div>
+                ))}
+              </div>
+            ) : <EmptyState title="No gate-out requests" description="Your gate-out requests will appear here." />}
+          </CardContent>
+        </Card>
+
+        {listOnly ? null : (
+          <Card className="xl:col-span-2">
+            <CardHeader><CardTitle>My Billing</CardTitle><Button variant="outline" size="sm" onClick={billings.reload}>Refresh</Button></CardHeader>
+            <CardContent>{billings.loading ? <LoadingBlock /> : invoices.length ? <BillingList invoices={invoices} reload={billings.reload} clientMode /> : <EmptyState title="No invoices" description="Invoices and payment status will appear here." />}</CardContent>
+          </Card>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function BillingList({ invoices, reload, clientMode = false, paymentMode = false }) {
+  const [payment, setPayment] = useState({})
+  const [busyId, setBusyId] = useState("")
+  const [message, setMessage] = useState("")
+  const [error, setError] = useState("")
+
+  const submitPayment = async (invoice) => {
+    setBusyId(invoice._id)
+    setMessage("")
+    setError("")
+    try {
+      const response = clientMode
+        ? await api.submitBillingPayment(invoice._id, { paymentReference: payment[invoice._id] || "", paymentMethod: "Manual" })
+        : await api.verifyBillingPayment(invoice._id, {})
+      setMessage(response.message || "Payment updated.")
+      reload?.()
+    } catch (err) {
+      setError(messageFrom(err, "Unable to update payment."))
+    } finally {
+      setBusyId("")
+    }
+  }
+
+  return (
+    <div>
+      <Notice type="success" message={message} />
+      <Notice type="error" message={error} />
+      <div className="space-y-3">
+        {invoices.map((invoice) => (
+          <div key={invoice._id} className="rounded-2xl border border-slate-200 p-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div>
+                <p className="font-black text-slate-950">{invoice.invoiceNo}</p>
+                <p className="text-sm text-slate-500">{invoice.companyName} • {invoice.containerNo || "No container"}</p>
+              </div>
+              <div className="flex items-center gap-2"><StatusBadge status={invoice.status} /><span className="font-black text-slate-950">{money(invoice.totalAmount)}</span></div>
+            </div>
+            <div className="mt-3 grid gap-2 text-sm text-slate-600 md:grid-cols-3">
+              {(invoice.chargeLines || []).map((line, index) => <p key={index}>{line.description}: {money(line.amount)}</p>)}
+            </div>
+            {clientMode && invoice.status !== "paid" ? (
+              <div className="mt-4 flex flex-col gap-2 md:flex-row">
+                <Input placeholder="Payment reference" value={payment[invoice._id] || ""} onChange={(event) => setPayment({ ...payment, [invoice._id]: event.target.value })} />
+                <Button onClick={() => submitPayment(invoice)} disabled={busyId === invoice._id}>{busyId === invoice._id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}Submit Payment</Button>
+              </div>
+            ) : null}
+            {paymentMode && invoice.status === "for-verification" ? (
+              <div className="mt-4"><Button onClick={() => submitPayment(invoice)} disabled={busyId === invoice._id}>{busyId === invoice._id ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}Verify Payment</Button></div>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function MyBillingsPage({ navigate }) {
+  const { user, portal } = useAuth()
+  const clientLoggedIn = user?.role === "client" && portal === "client"
+  const records = useApiData(() => clientLoggedIn ? api.myBillings() : Promise.resolve({ data: [] }), [clientLoggedIn])
+  useRealtimeReload(["billing:created", "billing:updated"], records.reload, clientLoggedIn)
+  if (!clientLoggedIn) return <ProtectedClientNotice navigate={navigate} />
+  return (
+    <div>
+      <PageHeader eyebrow="Client module" title="My Billing" description="View invoices, documentation fees, storage charges, and payment verification status." />
+      <Card><CardContent className="p-5">{records.loading ? <LoadingBlock /> : (records.data?.data || []).length ? <BillingList invoices={records.data.data} reload={records.reload} clientMode /> : <EmptyState title="No invoices" description="Billing records will appear here." />}</CardContent></Card>
+    </div>
+  )
+}
+
+function InventoryPage() {
+  const [status, setStatus] = useState("all")
+  const [search, setSearch] = useState("")
+  const records = useApiData(() => api.inventories({ status, search }), [status, search])
+  useRealtimeReload(["inventory:updated", "gateIn:created", "gateOut:updated"], records.reload)
+  const rows = records.data?.data || []
+  const summary = records.data?.summary || {}
+  return (
+    <div>
+      <PageHeader eyebrow="Admin module" title="Inventory / Yard Monitoring" description="Monitor container stock, yard location, status, available capacity, and released containers." />
+      <div className="mb-5 grid gap-3 md:grid-cols-4">
+        {[['Total', summary.total], ['In Yard', summary.inYard], ['Released', summary.released], ['On Hold', summary.onHold]].map(([label, value]) => <Card key={label}><CardContent className="p-4"><p className="text-xs font-bold uppercase tracking-wide text-slate-500">{label}</p><p className="mt-2 text-2xl font-black text-slate-950">{value || 0}</p></CardContent></Card>)}
+      </div>
+      <Card><CardHeader><CardTitle>Container Inventory</CardTitle><div className="flex gap-2"><Input placeholder="Search" value={search} onChange={(e) => setSearch(e.target.value)} /><Select value={status} onChange={(e) => setStatus(e.target.value)}><option value="all">All</option><option value="in-yard">In Yard</option><option value="on-hold">On Hold</option><option value="released">Released</option></Select></div></CardHeader><CardContent>{records.loading ? <LoadingBlock /> : rows.length ? <div className="space-y-3">{rows.map((item) => <div key={item._id} className="rounded-2xl border border-slate-200 p-4"><div className="flex items-start justify-between"><div><p className="font-black text-slate-950">{item.containerNo}</p><p className="text-sm text-slate-500">{item.companyName} • {item.shippingLine || '-'}</p></div><StatusBadge status={item.status} /></div><div className="mt-3 grid gap-1 text-sm text-slate-600 md:grid-cols-4"><p>Location: {item.yardLocation || '-'}</p><p>Size: {item.containerSize || '-'}</p><p>Type: {item.containerType || '-'}</p><p>Gate In: {formatDate(item.gateInAt)}</p></div></div>)}</div> : <EmptyState title="No inventory records" description="Gate-in records will create inventory automatically." />}</CardContent></Card>
+    </div>
+  )
+}
+
+function GateOutAdminPage() {
+  const [status, setStatus] = useState("pending")
+  const [message, setMessage] = useState("")
+  const [error, setError] = useState("")
+  const records = useApiData(() => api.adminGateOuts(status), [status])
+  useRealtimeReload(["gateOut:created", "gateOut:updated", "billing:updated"], records.reload)
+  const rows = records.data?.data || []
+  const action = async (fn, success) => {
+    setMessage(""); setError("")
+    try { const response = await fn(); setMessage(response.message || success); records.reload() } catch (err) { setError(messageFrom(err, "Action failed.")) }
+  }
+  return (
+    <div>
+      <PageHeader eyebrow="Admin module" title="Gate-Out Module" description="Approve release requests, reject incomplete requests, or mark approved containers as released." />
+      <Notice type="success" message={message} /><Notice type="error" message={error} />
+      <Card><CardHeader><CardTitle>Gate-Out Requests</CardTitle><Select value={status} onChange={(e) => setStatus(e.target.value)}><option value="pending">Pending</option><option value="approved">Approved</option><option value="released">Released</option><option value="rejected">Rejected</option><option value="all">All</option></Select></CardHeader><CardContent>{records.loading ? <LoadingBlock /> : rows.length ? <div className="space-y-3">{rows.map((item) => <div key={item._id} className="rounded-2xl border border-slate-200 p-4"><div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between"><div><p className="font-black text-slate-950">{item.requestNo}</p><p className="text-sm text-slate-500">{item.companyName} • {item.containerNo}</p></div><StatusBadge status={item.status} /></div><div className="mt-3 grid gap-1 text-sm text-slate-600 md:grid-cols-3"><p>Release Order: {item.releaseOrderNo || '-'}</p><p>Customs: {item.customsClearanceNo || '-'}</p><p>Payment: {item.paymentReference || '-'}</p></div><div className="mt-3"><ValidationSummary results={item.validationResults} /></div><div className="mt-3 flex flex-wrap gap-2"><Button size="sm" onClick={() => action(() => api.approveGateOut(item._id), 'Approved')} disabled={item.status !== 'pending'}>Approve</Button><Button size="sm" variant="outline" onClick={() => action(() => api.rejectGateOut(item._id, 'Rejected by admin'), 'Rejected')} disabled={item.status !== 'pending'}>Reject</Button><Button size="sm" variant="outline" onClick={() => action(() => api.releaseGateOut(item._id), 'Released')} disabled={item.status !== 'approved'}>Release</Button></div></div>)}</div> : <EmptyState title="No gate-out records" />}</CardContent></Card>
+    </div>
+  )
+}
+
+function BillingPage({ paymentMode = false }) {
+  const [status, setStatus] = useState(paymentMode ? "for-verification" : "all")
+  const [form, setForm] = useState({ companyName: "", containerNo: "", storageCharge: "", handlingCharge: "", documentationFee: "", remarks: "" })
+  const [message, setMessage] = useState("")
+  const [error, setError] = useState("")
+  const records = useApiData(() => api.adminBillings(status), [status])
+  useRealtimeReload(["billing:created", "billing:updated"], records.reload)
+  const rows = records.data?.data || []
+  const submit = async (event) => {
+    event.preventDefault(); setMessage(""); setError("")
+    try { const response = await api.createBilling(form); setMessage(response.message || 'Invoice created.'); setForm({ companyName: "", containerNo: "", storageCharge: "", handlingCharge: "", documentationFee: "", remarks: "" }); records.reload() } catch (err) { setError(messageFrom(err, 'Unable to create invoice.')) }
+  }
+  return (
+    <div>
+      <PageHeader eyebrow="Admin module" title={paymentMode ? "Payment Verification" : "Billing Module"} description={paymentMode ? "Verify submitted payment references before gate-out release." : "Create invoices for storage, handling, documentation, and other container yard charges."} />
+      <Notice type="success" message={message} /><Notice type="error" message={error} />
+      {!paymentMode ? <Card className="mb-5"><CardContent className="p-5"><SectionTitle icon={FileText} title="Create Invoice" description="Add billing charges for a client or container." /><form onSubmit={submit} className="grid gap-4 md:grid-cols-3"><Field label="Company Name" required><Input value={form.companyName} onChange={(e) => setForm({ ...form, companyName: e.target.value })} /></Field><Field label="Container Number"><Input value={form.containerNo} onChange={(e) => setForm({ ...form, containerNo: e.target.value.toUpperCase() })} /></Field><Field label="Storage Charge"><Input type="number" value={form.storageCharge} onChange={(e) => setForm({ ...form, storageCharge: e.target.value })} /></Field><Field label="Handling Charge"><Input type="number" value={form.handlingCharge} onChange={(e) => setForm({ ...form, handlingCharge: e.target.value })} /></Field><Field label="Documentation Fee"><Input type="number" value={form.documentationFee} onChange={(e) => setForm({ ...form, documentationFee: e.target.value })} /></Field><Field label="Remarks"><Input value={form.remarks} onChange={(e) => setForm({ ...form, remarks: e.target.value })} /></Field><div className="md:col-span-3"><Button type="submit"><Save className="h-4 w-4" />Create Invoice</Button></div></form></CardContent></Card> : null}
+      <Card><CardHeader><CardTitle>{paymentMode ? "Payments For Verification" : "Invoices"}</CardTitle><Select value={status} onChange={(e) => setStatus(e.target.value)}><option value="all">All</option><option value="unpaid">Unpaid</option><option value="for-verification">For Verification</option><option value="paid">Paid</option></Select></CardHeader><CardContent>{records.loading ? <LoadingBlock /> : rows.length ? <BillingList invoices={rows} reload={records.reload} paymentMode={paymentMode} /> : <EmptyState title="No billing records" />}</CardContent></Card>
+    </div>
+  )
+}
+
+function ReportsPage() {
+  const records = useApiData(() => api.reportsSummary(), [])
+  useRealtimeReload(["gateIn:created", "gateOut:updated", "inventory:updated", "billing:updated"], records.reload)
+  const data = records.data?.data || {}
+  const cards = [
+    ["Total Clients", data.totalClients], ["Pre-Advice Total", data.preAdviceTotal], ["Gate In Today", data.gateInToday], ["Gate Out Today", data.gateOutToday], ["Current Inventory", data.currentInventory], ["Released", data.releasedInventory], ["Unpaid Invoices", data.unpaidInvoices], ["Paid Revenue", money(data.paidRevenue || 0)],
+  ]
+  return <div><PageHeader eyebrow="Admin module" title="Reports" description="Operational, management, and financial report summary." />{records.loading ? <LoadingBlock /> : <><div className="grid gap-3 md:grid-cols-4">{cards.map(([label, value]) => <Card key={label}><CardContent className="p-4"><p className="text-xs font-bold uppercase tracking-wide text-slate-500">{label}</p><p className="mt-2 text-2xl font-black text-slate-950">{value || 0}</p></CardContent></Card>)}</div><Card className="mt-5"><CardHeader><CardTitle>Containers by Shipping Line</CardTitle></CardHeader><CardContent>{(data.byShippingLine || []).length ? <div className="space-y-2">{data.byShippingLine.map((item, index) => <div key={index} className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3"><span className="font-bold text-slate-700">{item._id || 'Unassigned'}</span><span className="font-black text-slate-950">{item.total}</span></div>)}</div> : <EmptyState title="No report data" />}</CardContent></Card></>}</div>
+}
+
+function ValidationRulesPage() {
+  const [blacklist, setBlacklist] = useState({ containerNo: "", reason: "" })
+  const [charge, setCharge] = useState({ containerNo: "", amount: "", reason: "" })
+  const [ownership, setOwnership] = useState({ prefix: "", ownerName: "" })
+  const [windowValue, setWindowValue] = useState("08:00-17:00")
+  const [message, setMessage] = useState("")
+  const [error, setError] = useState("")
+  const records = useApiData(() => api.validationRules(), [])
+  useRealtimeReload(["validationRules:updated"], records.reload)
+  useEffect(() => { if (records.data?.data?.settings?.defaultGateAppointmentWindow) setWindowValue(records.data.data.settings.defaultGateAppointmentWindow) }, [records.data])
+  const data = records.data?.data || {}
+  const run = async (fn, reset) => { setMessage(""); setError(""); try { const response = await fn(); setMessage(response.message || 'Saved.'); reset?.(); records.reload() } catch (err) { setError(messageFrom(err, 'Unable to save.')) } }
+  return (
+    <div>
+      <PageHeader eyebrow="Admin module" title="Validation Rules" description="Manage blacklisted containers, outstanding charges, ownership prefixes, and gate appointment defaults from MongoDB." />
+      <Notice type="success" message={message} /><Notice type="error" message={error} />
+      <div className="grid gap-5 xl:grid-cols-2">
+        <Card><CardContent className="p-5"><SectionTitle icon={Shield} title="Blacklisted Containers" /><form onSubmit={(e) => { e.preventDefault(); run(() => api.saveBlacklistedContainer(blacklist), () => setBlacklist({ containerNo: "", reason: "" })) }} className="grid gap-3 md:grid-cols-[1fr_1fr_auto]"><Input placeholder="Container No." value={blacklist.containerNo} onChange={(e) => setBlacklist({ ...blacklist, containerNo: e.target.value.toUpperCase() })} /><Input placeholder="Reason" value={blacklist.reason} onChange={(e) => setBlacklist({ ...blacklist, reason: e.target.value })} /><Button type="submit">Save</Button></form><RuleList items={data.blacklistedContainers} /></CardContent></Card>
+        <Card><CardContent className="p-5"><SectionTitle icon={AlertCircle} title="Outstanding Charges" /><form onSubmit={(e) => { e.preventDefault(); run(() => api.saveOutstandingCharge(charge), () => setCharge({ containerNo: "", amount: "", reason: "" })) }} className="grid gap-3 md:grid-cols-[1fr_120px_1fr_auto]"><Input placeholder="Container No." value={charge.containerNo} onChange={(e) => setCharge({ ...charge, containerNo: e.target.value.toUpperCase() })} /><Input type="number" placeholder="Amount" value={charge.amount} onChange={(e) => setCharge({ ...charge, amount: e.target.value })} /><Input placeholder="Reason" value={charge.reason} onChange={(e) => setCharge({ ...charge, reason: e.target.value })} /><Button type="submit">Save</Button></form><RuleList items={data.outstandingChargeContainers} amount /></CardContent></Card>
+        <Card><CardContent className="p-5"><SectionTitle icon={Building2} title="Container Ownership Prefixes" /><form onSubmit={(e) => { e.preventDefault(); run(() => api.saveOwnershipRule(ownership), () => setOwnership({ prefix: "", ownerName: "" })) }} className="grid gap-3 md:grid-cols-[120px_1fr_auto]"><Input placeholder="MSCU" value={ownership.prefix} onChange={(e) => setOwnership({ ...ownership, prefix: e.target.value.toUpperCase() })} /><Input placeholder="Owner / Shipping Line" value={ownership.ownerName} onChange={(e) => setOwnership({ ...ownership, ownerName: e.target.value })} /><Button type="submit">Save</Button></form><RuleList items={data.ownershipRules} ownership /></CardContent></Card>
+        <Card><CardContent className="p-5"><SectionTitle icon={Settings} title="Gate Appointment Settings" /><div className="flex gap-3"><Input value={windowValue} onChange={(e) => setWindowValue(e.target.value)} /><Button onClick={() => run(() => api.saveValidationSettings({ defaultGateAppointmentWindow: windowValue }))}>Save</Button></div><p className="mt-3 text-sm text-slate-500">Example: 08:00-17:00</p></CardContent></Card>
+      </div>
+    </div>
+  )
+}
+
+function RuleList({ items = [], amount = false, ownership = false }) {
+  return <div className="mt-4 space-y-2">{items.length ? items.map((item) => <div key={item._id} className="rounded-xl bg-slate-50 px-3 py-2 text-sm"><span className="font-black text-slate-950">{ownership ? item.prefix : item.containerNo}</span><span className="text-slate-500"> {ownership ? `= ${item.ownerName}` : item.reason || ''} {amount ? ` ${money(item.amount)}` : ''}</span></div>) : <p className="text-sm text-slate-400">No records yet.</p>}</div>
+}
+
+
 function getActiveAdminModule(path) {
   if (ADMIN_PATHS[path]) return ADMIN_PATHS[path]
   const match = Object.entries(ADMIN_PATHS).find(([route]) => route !== "/admin" && path.startsWith(route))
@@ -2520,6 +3056,18 @@ function AdminPortal({ path, navigate }) {
     page = <BookingApprovalPage />
   } else if (activeModule === "gate-in") {
     page = <GateInPage />
+  } else if (activeModule === "inventory") {
+    page = <InventoryPage />
+  } else if (activeModule === "billing") {
+    page = <BillingPage />
+  } else if (activeModule === "gate-out") {
+    page = <GateOutAdminPage />
+  } else if (activeModule === "payment-verification") {
+    page = <BillingPage paymentMode />
+  } else if (activeModule === "reports") {
+    page = <ReportsPage />
+  } else if (activeModule === "validation-rules") {
+    page = <ValidationRulesPage />
   } else if (activeModule === "users") {
     page = <UsersPage />
   } else if (activeModule === "api-logs") {
@@ -2546,6 +3094,12 @@ function ClientPortal({ path, navigate }) {
     page = <BookingPage navigate={navigate} />
   } else if (path === "/my-bookings") {
     page = <MyBookingsPage navigate={navigate} />
+  } else if (path === "/gate-out") {
+    page = <GateOutPage navigate={navigate} />
+  } else if (path === "/my-gate-outs") {
+    page = <GateOutPage navigate={navigate} listOnly />
+  } else if (path === "/my-billings") {
+    page = <MyBillingsPage navigate={navigate} />
   } else {
     page = <ClientLoginPage navigate={navigate} />
   }
